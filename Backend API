@@ -1,0 +1,206 @@
+// routes/content.js
+const express = require('express');
+const router = express.Router();
+const { Pool } = require('pg');
+const { MongoClient } = require('mongodb');
+
+// Database connections
+const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
+const mongoClient = new MongoClient(process.env.MONGODB_URI);
+
+// Search endpoint with filters
+router.get('/api/content/search', async (req, res) => {
+  const { 
+    q,                    // search query
+    category,             // chapel-services, events, trainings, newsletters
+    type,                 // video, audio, document
+    dateFrom, 
+    dateTo,
+    speaker,
+    sortBy = 'published_at',
+    page = 1,
+    limit = 20
+  } = req.query;
+
+  try {
+    let query = `
+      SELECT 
+        c.*,
+        cat.name as category_name,
+        cat.slug as category_slug,
+        cs.sermon_title,
+        cs.scripture_reference,
+        cs.chapel_type
+      FROM content_items c
+      JOIN content_categories cat ON c.category_id = cat.id
+      LEFT JOIN chapel_services cs ON cs.content_id = c.id
+      WHERE c.status = 'published'
+    `;
+    
+    const params = [];
+    let paramCount = 0;
+
+    // Full-text search
+    if (q) {
+      paramCount++;
+      query += ` AND (
+        c.search_vector @@ plainto_tsquery('english', $${paramCount})
+        OR c.title ILIKE $${paramCount + 1}
+        OR c.description ILIKE $${paramCount + 1}
+      )`;
+      params.push(q, `%${q}%`);
+      paramCount += 2;
+    }
+
+    // Category filter
+    if (category) {
+      paramCount++;
+      query += ` AND cat.slug = $${paramCount}`;
+      params.push(category);
+    }
+
+    // Content type filter
+    if (type) {
+      paramCount++;
+      query += ` AND c.content_type = $${paramCount}`;
+      params.push(type);
+    }
+
+    // Date range
+    if (dateFrom) {
+      paramCount++;
+      query += ` AND c.event_date >= $${paramCount}`;
+      params.push(dateFrom);
+    }
+
+    if (dateTo) {
+      paramCount++;
+      query += ` AND c.event_date <= $${paramCount}`;
+      params.push(dateTo);
+    }
+
+    // Speaker filter
+    if (speaker) {
+      paramCount++;
+      query += ` AND c.speaker = $${paramCount}`;
+      params.push(speaker);
+    }
+
+    // Sorting
+    const allowedSorts = {
+      'published_at': 'c.published_at DESC',
+      'title': 'c.title ASC',
+      'views': 'c.view_count DESC',
+      'date': 'c.event_date DESC'
+    };
+    query += ` ORDER BY ${allowedSorts[sortBy] || allowedSorts.published_at}`;
+
+    // Pagination
+    const offset = (page - 1) * limit;
+    paramCount++;
+    query += ` LIMIT $${paramCount} OFFSET $${paramCount + 1}`;
+    params.push(limit, offset);
+
+    const result = await pgPool.query(query, params);
+    
+    // Get total count for pagination
+    const countResult = await pgPool.query(
+      `SELECT COUNT(*) FROM (${query.split('LIMIT')[0]}) as count_query`,
+      params.slice(0, -2)
+    );
+
+    res.json({
+      items: result.rows,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: parseInt(countResult.rows[0].count),
+        pages: Math.ceil(countResult.rows[0].count / limit)
+      }
+    });
+
+  } catch (error) {
+    console.error('Search error:', error);
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+// Get featured chapel content
+router.get('/api/chapel/featured', async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        c.*,
+        cs.sermon_title,
+        cs.scripture_reference,
+        cs.chapel_type,
+        cs.is_live_stream,
+        cs.live_stream_url
+      FROM content_items c
+      JOIN content_categories cat ON c.category_id = cat.id
+      LEFT JOIN chapel_services cs ON cs.content_id = c.id
+      WHERE cat.slug = 'chapel-services'
+        AND c.status = 'published'
+        AND (c.featured = TRUE OR cs.is_live_stream = TRUE)
+      ORDER BY 
+        cs.is_live_stream DESC,
+        c.published_at DESC
+      LIMIT 5
+    `;
+    
+    const result = await pgPool.query(query);
+    
+    // Separate live stream from featured
+    const liveStream = result.rows.find(r => r.is_live_stream);
+    const featured = result.rows.filter(r => !r.is_live_stream);
+    
+    res.json({
+      liveStream: liveStream || null,
+      featured: featured,
+      archiveLink: '/chapel/archive'
+    });
+    
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch chapel content' });
+  }
+});
+
+// Get content by ID with transcript
+router.get('/api/content/:id', async (req, res) => {
+  try {
+    // Get from PostgreSQL
+    const pgResult = await pgPool.query(
+      'SELECT * FROM content_items WHERE id = $1',
+      [req.params.id]
+    );
+    
+    if (pgResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Content not found' });
+    }
+    
+    const content = pgResult.rows[0];
+    
+    // Get transcript and chapters from MongoDB
+    const db = mongoClient.db('video_repository');
+    const doc = await db.collection('content_documents').findOne({
+      contentId: req.params.id
+    });
+    
+    // Increment view count
+    await pgPool.query(
+      'UPDATE content_items SET view_count = view_count + 1 WHERE id = $1',
+      [req.params.id]
+    );
+    
+    res.json({
+      ...content,
+      transcript: doc?.transcript || null,
+      chapters: doc?.chapters || []
+    });
+    
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch content' });
+  }
+});
+
+module.exports = router;
