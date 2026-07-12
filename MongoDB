@@ -1,0 +1,26 @@
+// Content Documents Collection
+{
+  _id: ObjectId,
+  contentId: "postgres-reference-id",
+  transcript: {
+    fullText: "string",
+    segments: [
+      { startTime: 0, endTime: 15, text: "..." },
+      { startTime: 15, endTime: 30, text: "..." }
+    ]
+  },
+  chapters: [
+    { timestamp: 0, title: "Introduction" },
+    { timestamp: 120, title: "Main Message" }
+  ],
+  analytics: {
+    views: 1250,
+    likes: 89,
+    shares: 23,
+    averageWatchTime: 1800
+  },
+  userEngagement: {
+    comments: [...],
+    bookmarks: [...]
+  }
+}
