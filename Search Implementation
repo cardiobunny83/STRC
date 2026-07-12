@@ -1,0 +1,96 @@
+// search/index.js
+const { Client } = require('@elastic/elasticsearch');
+
+const client = new Client({ node: process.env.ELASTICSEARCH_URL });
+
+// Create index with mappings
+async function createIndex() {
+  await client.indices.create({
+    index: 'video_repository',
+    body: {
+      mappings: {
+        properties: {
+          title: { 
+            type: 'text',
+            analyzer: 'standard',
+            fields: {
+              keyword: { type: 'keyword' }
+            }
+          },
+          description: { type: 'text' },
+          transcript: { type: 'text' },
+          speaker: { 
+            type: 'text',
+            fields: {
+              keyword: { type: 'keyword' }
+            }
+          },
+          category: { type: 'keyword' },
+          content_type: { type: 'keyword' },
+          tags: { type: 'keyword' },
+          event_date: { type: 'date' },
+          scripture_reference: { type: 'text' },
+          created_at: { type: 'date' }
+        }
+      }
+    }
+  });
+}
+
+// Index content
+async function indexContent(content) {
+  await client.index({
+    index: 'video_repository',
+    id: content.id,
+    body: content
+  });
+}
+
+// Search with highlighting
+async function searchContent(query, filters = {}) {
+  const must = [
+    {
+      multi_match: {
+        query: query,
+        fields: ['title^3', 'description^2', 'transcript', 'speaker^2', 'scripture_reference'],
+        type: 'best_fields',
+        fuzziness: 'AUTO'
+      }
+    }
+  ];
+
+  if (filters.category) {
+    must.push({ term: { category: filters.category } });
+  }
+
+  if (filters.type) {
+    must.push({ term: { content_type: filters.type } });
+  }
+
+  const result = await client.search({
+    index: 'video_repository',
+    body: {
+      query: {
+        bool: { must }
+      },
+      highlight: {
+        fields: {
+          title: {},
+          description: {},
+          transcript: { fragment_size: 150 }
+        }
+      },
+      sort: [
+        { _score: 'desc' },
+        { event_date: 'desc' }
+      ]
+    }
+  });
+
+  return result.hits.hits.map(hit => ({
+    ...hit._source,
+    highlights: hit.highlight
+  }));
+}
+
+module.exports = { createIndex, indexContent, searchContent };
