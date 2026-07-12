@@ -1,0 +1,77 @@
+-- Content Categories
+CREATE TABLE content_categories (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    slug VARCHAR(100) UNIQUE NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+INSERT INTO content_categories (name, slug) VALUES 
+    ('Chapel Services', 'chapel-services'),
+    ('Events', 'events'),
+    ('Trainings', 'trainings'),
+    ('Newsletters', 'newsletters');
+
+-- Main Content Table
+CREATE TABLE content_items (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    category_id INTEGER REFERENCES content_categories(id),
+    content_type VARCHAR(50), -- 'video', 'audio', 'document', 'newsletter'
+    
+    -- Media URLs
+    video_url VARCHAR(500),
+    audio_url VARCHAR(500),
+    thumbnail_url VARCHAR(500),
+    document_url VARCHAR(500),
+    
+    -- Metadata
+    duration INTEGER, -- in seconds
+    file_size BIGINT,
+    speaker VARCHAR(255),
+    event_date DATE,
+    tags TEXT[], -- PostgreSQL array for tags
+    
+    -- Search/SEO
+    search_vector TSVECTOR,
+    slug VARCHAR(255) UNIQUE,
+    meta_title VARCHAR(255),
+    meta_description TEXT,
+    
+    -- Status & Visibility
+    status VARCHAR(50) DEFAULT 'published', -- draft, published, archived
+    featured BOOLEAN DEFAULT FALSE,
+    view_count INTEGER DEFAULT 0,
+    
+    -- Timestamps
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    published_at TIMESTAMP
+);
+
+-- Create search index
+CREATE INDEX idx_content_search ON content_items USING GIN(search_vector);
+
+-- Chapel-specific metadata
+CREATE TABLE chapel_services (
+    id SERIAL PRIMARY KEY,
+    content_id INTEGER REFERENCES content_items(id) ON DELETE CASCADE,
+    sermon_title VARCHAR(255),
+    scripture_reference VARCHAR(255),
+    worship_leader VARCHAR(255),
+    chapel_type VARCHAR(100), -- 'live', 'recorded', 'podcast'
+    is_live_stream BOOLEAN DEFAULT FALSE,
+    live_stream_url VARCHAR(500)
+);
+
+-- Events table for past events
+CREATE TABLE events (
+    id SERIAL PRIMARY KEY,
+    content_id INTEGER REFERENCES content_items(id) ON DELETE CASCADE,
+    event_type VARCHAR(100),
+    location VARCHAR(255),
+    attendee_count INTEGER,
+    materials_url VARCHAR(500)
+);
