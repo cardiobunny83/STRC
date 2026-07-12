@@ -1,0 +1,86 @@
+// components/VideoPlayer.jsx
+import React, { useRef, useState } from 'react';
+import Hls from 'hls.js';
+
+const VideoPlayer = ({ src, poster, title }) => {
+  const videoRef = useRef(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    // HLS support for streaming
+    if (src.includes('.m3u8') && Hls.isSupported()) {
+      const hls = new Hls();
+      hls.loadSource(src);
+      hls.attachMedia(video);
+      return () => hls.destroy();
+    } else {
+      video.src = src;
+    }
+  }, [src]);
+
+  const togglePlay = () => {
+    if (videoRef.current.paused) {
+      videoRef.current.play();
+      setIsPlaying(true);
+    } else {
+      videoRef.current.pause();
+      setIsPlaying(false);
+    }
+  };
+
+  const handleTimeUpdate = () => {
+    setCurrentTime(videoRef.current.currentTime);
+  };
+
+  const handleLoadedMetadata = () => {
+    setDuration(videoRef.current.duration);
+  };
+
+  const seek = (e) => {
+    const rect = e.target.getBoundingClientRect();
+    const pos = (e.clientX - rect.left) / rect.width;
+    videoRef.current.currentTime = pos * duration;
+  };
+
+  return (
+    <div className="video-player">
+      <video
+        ref={videoRef}
+        poster={poster}
+        onTimeUpdate={handleTimeUpdate}
+        onLoadedMetadata={handleLoadedMetadata}
+        onClick={togglePlay}
+      />
+      
+      <div className="video-controls">
+        <button onClick={togglePlay}>
+          {isPlaying ? 'Pause' : 'Play'}
+        </button>
+        
+        <div className="progress-bar" onClick={seek}>
+          <div 
+            className="progress-fill" 
+            style={{ width: `${(currentTime / duration) * 100}%` }}
+          />
+        </div>
+        
+        <span className="time">
+          {formatTime(currentTime)} / {formatTime(duration)}
+        </span>
+      </div>
+    </div>
+  );
+};
+
+const formatTime = (seconds) => {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
+
+export default VideoPlayer;
