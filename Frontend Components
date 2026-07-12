@@ -1,0 +1,96 @@
+// components/ChapelAccess.jsx
+import React, { useState, useEffect } from 'react';
+import { Play, Radio, Calendar, ArrowRight } from 'lucide-react';
+import VideoPlayer from './VideoPlayer';
+
+const ChapelAccess = () => {
+  const [featured, setFeatured] = useState(null);
+  const [liveStream, setLiveStream] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/chapel/featured')
+      .then(res => res.json())
+      .then(data => {
+        setFeatured(data.featured[0]);
+        setLiveStream(data.liveStream);
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) return <div className="chapel-access loading">Loading...</div>;
+
+  return (
+    <section className="chapel-access">
+      <div className="chapel-header">
+        <h2>Chapel Services</h2>
+        <p className="chapel-description">
+          Join us for inspiring worship, powerful messages, and community fellowship. 
+          Our chapel services are available live, on-demand, or as podcasts for your convenience.
+        </p>
+      </div>
+
+      {/* Live Stream Banner */}
+      {liveStream && (
+        <div className="live-stream-banner">
+          <span className="live-badge">
+            <Radio className="pulse" /> LIVE NOW
+          </span>
+          <h3>{liveStream.sermon_title || liveStream.title}</h3>
+          <p>{liveStream.speaker}</p>
+          <button className="btn-watch-live">
+            <Play size={20} /> Join Live Stream
+          </button>
+        </div>
+      )}
+
+      {/* Featured Chapel Content */}
+      {featured && (
+        <div className="featured-chapel">
+          <div className="video-container">
+            <VideoPlayer 
+              src={featured.video_url}
+              poster={featured.thumbnail_url}
+              title={featured.title}
+            />
+          </div>
+          
+          <div className="chapel-info">
+            <span className="content-type">Latest Service</span>
+            <h3>{featured.sermon_title || featured.title}</h3>
+            {featured.scripture_reference && (
+              <p className="scripture">{featured.scripture_reference}</p>
+            )}
+            <p className="speaker">{featured.speaker}</p>
+            <p className="date">
+              <Calendar size={16} /> 
+              {new Date(featured.event_date).toLocaleDateString()}
+            </p>
+            
+            <div className="action-buttons">
+              <button className="btn-primary">
+                <Play size={18} /> Watch Now
+              </button>
+              {featured.audio_url && (
+                <button className="btn-secondary">
+                  <Radio size={18} /> Listen Now
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Archive Link */}
+      <div className="chapel-archive-cta">
+        <a href="/chapel/archive" className="archive-link">
+          Browse Full Chapel Archive 
+          <ArrowRight size={20} />
+        </a>
+        <p>Access all past services, sermons, and special events</p>
+      </div>
+    </section>
+  );
+};
+
+export default ChapelAccess;
