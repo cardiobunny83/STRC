@@ -1,26 +1,110 @@
-// Content Documents Collection
-{
-  _id: ObjectId,
-  contentId: "postgres-reference-id",
-  transcript: {
-    fullText: "string",
-    segments: [
-      { startTime: 0, endTime: 15, text: "..." },
-      { startTime: 15, endTime: 30, text: "..." }
-    ]
+// metrics schema - add this to your MongoDB setup
+const metricsSchema = {
+  // Daily snapshot
+  date: new Date(),           // Store as: 2026-07-12
+  weekNumber: 28,             // Week of year (1-52)
+  year: 2026,
+  
+  // Video metrics
+  contentId: "12345",         // Which video/document
+  category: "chapel-services", // Which category
+  
+  // Engagement metrics
+  views: 150,
+  uniqueViewers: 120,         // Unique users (if logged in)
+  watchTime: 7200,            // Total seconds watched
+  avgWatchDuration: 48,       // Average seconds per view
+  
+  // User actions
+  likes: 45,
+  shares: 12,
+  downloads: 8,
+  comments: 23,
+  bookmarks: 15,
+  
+  // Device/location (optional)
+  deviceTypes: {
+    mobile: 80,
+    desktop: 45,
+    tablet: 25
   },
-  chapters: [
-    { timestamp: 0, title: "Introduction" },
-    { timestamp: 120, title: "Main Message" }
-  ],
-  analytics: {
-    views: 1250,
-    likes: 89,
-    shares: 23,
-    averageWatchTime: 1800
-  },
-  userEngagement: {
-    comments: [...],
-    bookmarks: [...]
-  }
+  
+  // Chapel-specific
+  liveStream: false,
+  liveViewers: 0,             // Peak concurrent for live
+};
+// utils/metrics.js
+const { MongoClient } = require('mongodb');
+
+let db;
+
+async function connectMetrics() {
+  const client = new MongoClient(process.env.MONGODB_URI);
+  await client.connect();
+  db = client.db('video_repository');
+  return db.collection('metrics');
 }
+
+// Call this when someone watches a video
+async function trackView(contentId, category, watchTimeSeconds) {
+  const metrics = await connectMetrics();
+  const today = new Date();
+  
+  await metrics.updateOne(
+    { 
+      date: today.toISOString().split('T')[0], // "2026-07-12"
+      contentId: contentId 
+    },
+    {
+      $inc: { 
+        views: 1,
+        watchTime: watchTimeSeconds
+      },
+      $setOnInsert: {
+        weekNumber: getWeekNumber(today),
+        year: today.getFullYear(),
+        category: category,
+        date: today.toISOString().split('T')[0]
+      }
+    },
+    { upsert: true } // Create if doesn't exist
+  );
+}
+
+// Call this for likes, shares, etc.
+async function trackEngagement(contentId, actionType) {
+  const metrics = await connectMetrics();
+  const today = new Date().toISOString().split('T')[0];
+  
+  const updateField = {};
+  updateField[actionType] = 1; // e.g., likes: 1
+  
+  await metrics.updateOne(
+    { date: today, contentId: contentId },
+    { $inc: updateField },
+    { upsert: true }
+  );
+}
+
+// Helper: Get week number (1-52)
+function getWeekNumber(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
+  return Math.ceil((((d - yearStart) / 86400000) + 1)/7);
+}
+
+module.exports = { trackView, trackEngagement };
+// Add to your main server file
+const cron = require('node-cron');
+
+// Run every Monday at 9 AM
+cron.schedule('0 9 * * 1', async () => {
+  console.log('Generating weekly report...');
+  const report = await generateLastWeekReport();
+  console.log('Report saved:', report.files);
+  
+  // Optional: Email the report
+  // await emailReport(report.files);
+});
